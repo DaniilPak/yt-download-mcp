@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { normalizeInput } from './ytdlp.js';
+import { normalizeInput, videoArgs } from './ytdlp.js';
+
+test('video args cap resolution and prefer mp4/m4a', () => {
+  const args = videoArgs('https://www.youtube.com/watch?v=dQw4w9WgXcQ', '720', 'mp4', '/out');
+  assert.equal(args[args.indexOf('-S') + 1], 'res:720,vcodec:h264,acodec:m4a');
+  assert.equal(args[args.indexOf('--merge-output-format') + 1], 'mp4');
+  assert.ok(args.includes('--embed-thumbnail'));
+  assert.equal(args.at(-2), '--');
+});
+
+test('video args: best quality has no res cap; webm skips thumbnail embedding', () => {
+  const args = videoArgs('u', 'best', 'webm', '/out');
+  assert.equal(args[args.indexOf('-S') + 1], 'res,ext:webm:webm');
+  assert.ok(!args.includes('--embed-thumbnail'));
+});
 
 const ID = 'dQw4w9WgXcQ';
 
