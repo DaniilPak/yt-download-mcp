@@ -3,12 +3,23 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+const expandHome = (p: string) => p.replace(/^~(?=$|\/)/, os.homedir());
+
 export const OUTPUT_DIR = path.resolve(
-  process.env.YT_AUDIO_DIR?.replace(/^~(?=$|\/)/, os.homedir()) ??
-    path.join(os.homedir(), 'Music', 'yt-audio-mcp')
+  process.env.YT_AUDIO_DIR ? expandHome(process.env.YT_AUDIO_DIR) : path.join(os.homedir(), 'Music', 'yt-download-mcp')
+);
+export const VIDEO_DIR = path.resolve(
+  process.env.YT_VIDEO_DIR ? expandHome(process.env.YT_VIDEO_DIR) : path.join(OUTPUT_DIR, 'video')
 );
 const YTDLP = process.env.YTDLP_PATH ?? 'yt-dlp';
 const DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+const VIDEO_TIMEOUT_MS = 60 * 60 * 1000;
+
+export const VIDEO_QUALITIES = ['best', '2160', '1440', '1080', '720', '480', '360'] as const;
+export const VIDEO_CONTAINERS = ['mp4', 'mkv', 'webm'] as const;
+export type VideoQuality = (typeof VIDEO_QUALITIES)[number];
+export type VideoContainer = (typeof VIDEO_CONTAINERS)[number];
+const VIDEO_EXT = /\.(mp4|mkv|webm)$/;
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 const ALLOWED_HOSTS = new Set([
@@ -26,6 +37,10 @@ export interface Track {
   uploader: string | null;
   filepath: string;
   cached: boolean;
+}
+
+export interface Video extends Track {
+  height: number | null;
 }
 
 export interface SearchResult {
@@ -95,10 +110,72 @@ function run(args: string[], timeoutMs: number): Promise<string> {
   });
 }
 
-async function findExisting(id: string): Promise<string | null> {
-  const files = await fs.readdir(OUTPUT_DIR).catch(() => []);
-  const hit = files.find((f) => f.endsWith(`[${id}].mp3`));
-  return hit ? path.join(OUTPUT_DIR, hit) : null;
+async function findExisting(id: string, dir = OUTPUT_DIR, ext = 'mp3'): Promise<string | null> {
+  const files = await fs.readdir(dir).catch(() => []);
+  const hit = files.find((f) => f.endsWith(`[${id}].${ext}`));
+  return hit ? path.join(dir, hit) : null;
+}
+
+/** yt-dlp arguments for a video download. Exported for tests. */
+export function videoArgs(url: string, quality: VideoQuality, container: VideoContainer, dir: string): string[] {
+  // Sort rather than filter, so a lower resolution is used when the requested one doesn't exist.
+  // Resolution wins over codec; within a resolution, mp4 prefers H.264/AAC (plays natively in
+  // QuickTime, iOS and most editors), webm prefers VP9/Opus, and mkv takes yt-dlp's default (best codec).
+  const codecs = { mp4: 'vcodec:h264,acodec:m4a', webm: 'ext:webm:webm', mkv: null }[container];
+  const sort = [quality === 'best' ? 'res' : `res:${quality}`, codecs].filter(Boolean).join(',');
+  return [
+    '--no-playlist',
+    '-f', 'bv*+ba/b',
+    '-S', sort,
+    '--merge-output-format', container,
+    '--remux-video', container,
+    '--embed-metadata', '--embed-chapters',
+    // yt-dlp can't embed thumbnails into webm.
+    ...(container === 'webm' ? [] : ['--embed-thumbnail']),
+    '--force-overwrites',
+    '-P', dir,
+    '-o', '%(title)s [%(id)s].%(ext)s',
+    '--no-simulate', '--no-progress',
+    '--print', 'after_move:%(.{id,title,duration,uploader,filepath,height})j',
+    '--', url,
+  ];
+}
+
+export async function downloadVideo(
+  input: string,
+  quality: VideoQuality,
+  container: VideoContainer,
+  force: boolean
+): Promise<Video> {
+  const { id, url } = normalizeInput(input);
+  await fs.mkdir(VIDEO_DIR, { recursive: true });
+
+  if (!force) {
+    const existing = await findExisting(id, VIDEO_DIR, container);
+    if (existing) {
+      return {
+        id,
+        title: path.basename(existing).replace(/ \[[^\]]+\]\.\w+$/, ''),
+        duration: null,
+        uploader: null,
+        height: null,
+        filepath: existing,
+        cached: true,
+      };
+    }
+  }
+
+  const stdout = await run(videoArgs(url, quality, container, VIDEO_DIR), VIDEO_TIMEOUT_MS);
+  const info = JSON.parse(stdout.trim().split('\n').pop()!);
+  return {
+    id: info.id,
+    title: info.title,
+    duration: info.duration ?? null,
+    uploader: info.uploader ?? null,
+    height: info.height ?? null,
+    filepath: info.filepath,
+    cached: false,
+  };
 }
 
 export async function downloadMp3(input: string, bitrate: string, force: boolean): Promise<Track> {
@@ -162,21 +239,30 @@ export async function search(query: string, limit: number): Promise<SearchResult
   }));
 }
 
-export async function listDownloads() {
-  const files = await fs.readdir(OUTPUT_DIR).catch(() => [] as string[]);
-  const mp3s = files.filter((f) => f.endsWith('.mp3'));
-  const rows = await Promise.all(
-    mp3s.map(async (f) => {
-      const filepath = path.join(OUTPUT_DIR, f);
-      const st = await fs.stat(filepath);
-      return {
-        file: f,
-        filepath,
-        id: f.match(/\[([A-Za-z0-9_-]{11})\]\.mp3$/)?.[1] ?? null,
-        size_mb: +(st.size / 1024 / 1024).toFixed(2),
-        downloaded_at: st.mtime.toISOString(),
-      };
-    })
+async function listDir(dir: string, match: RegExp, type: 'audio' | 'video') {
+  const files = await fs.readdir(dir).catch(() => [] as string[]);
+  return Promise.all(
+    files
+      .filter((f) => match.test(f))
+      .map(async (f) => {
+        const filepath = path.join(dir, f);
+        const st = await fs.stat(filepath);
+        return {
+          type,
+          file: f,
+          filepath,
+          id: f.match(/\[([A-Za-z0-9_-]{11})\]\.\w+$/)?.[1] ?? null,
+          size_mb: +(st.size / 1024 / 1024).toFixed(2),
+          downloaded_at: st.mtime.toISOString(),
+        };
+      })
   );
+}
+
+export async function listDownloads(type: 'audio' | 'video' | 'all' = 'all') {
+  const rows = [
+    ...(type !== 'video' ? await listDir(OUTPUT_DIR, /\.mp3$/, 'audio') : []),
+    ...(type !== 'audio' ? await listDir(VIDEO_DIR, VIDEO_EXT, 'video') : []),
+  ];
   return rows.sort((a, b) => b.downloaded_at.localeCompare(a.downloaded_at));
 }

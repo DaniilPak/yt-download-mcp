@@ -1,4 +1,4 @@
-# Contributing to yt-audio-mcp
+# Contributing to yt-download-mcp
 
 Bug fixes, new tools, client setup guides and tests are all welcome. For bigger
 changes (a new tool, a new dependency), open an issue first so we can agree on the
@@ -9,8 +9,8 @@ scope.
 You need Node.js 20+, yt-dlp and ffmpeg.
 
 ```bash
-git clone https://github.com/DaniilPak/yt-audio-mcp.git
-cd yt-audio-mcp
+git clone https://github.com/DaniilPak/yt-download-mcp.git
+cd yt-download-mcp
 npm install
 npm test
 ```
