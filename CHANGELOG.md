@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0
+
+- Merged in openai-image-mcp: `generate_image`, `edit_image` and `list_image_models` (renamed from `list_models`) tools for the OpenAI Images API. Set `OPENAI_API_KEY` to use them
+
 ## 1.1.0
 
 - Renamed to **yt-download-mcp** (MCP server name `yt-download`); the default output folder is now `~/Music/yt-download-mcp`. `YT_AUDIO_DIR` / `YT_VIDEO_DIR` still work, so point `YT_AUDIO_DIR` at your old folder to keep your library

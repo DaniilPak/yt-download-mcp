@@ -12,8 +12,9 @@ import {
   listDownloads,
   search,
 } from './ytdlp.js';
+import { DEFAULT_IMAGE_MODEL, IMAGE_DIR, registerImageTools } from './images.js';
 
-const server = new McpServer({ name: 'yt-download', version: '1.1.0' });
+const server = new McpServer({ name: 'yt-download', version: '1.2.0' });
 
 const json = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
@@ -123,5 +124,7 @@ server.registerTool(
   }
 );
 
+registerImageTools(server);
+
 await server.connect(new StdioServerTransport());
-console.error(`yt-download MCP server running (audio: ${OUTPUT_DIR}, video: ${VIDEO_DIR})`);
+console.error(`yt-download MCP server running (audio: ${OUTPUT_DIR}, video: ${VIDEO_DIR}, images: ${IMAGE_DIR}, image model: ${DEFAULT_IMAGE_MODEL})`);
