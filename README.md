@@ -71,6 +71,11 @@ Start a new Claude Code session and ask it to download a song or a video.
 | `download_video` | `url`, `quality` (`"1080"` by default, or `best` / `2160` / `1440` / `720` / `480` / `360`), `container` (`mp4` by default, or `mkv` / `webm`), `force` | `{ id, title, duration, uploader, height, filepath, cached }` |
 | `search_youtube` | `query`, `limit` (1–25, default 5) | `[{ id, title, duration, channel, url }]` |
 | `list_downloads` | `type` (`all` by default, or `audio` / `video`) | MP3s and videos, newest first |
+| `generate_image` | `prompt`, `model` (default `gpt-image-2.5-flare`), `size`, `quality`, `background`, `output_format`, `n`, `output_dir`, `include_images` | `{ model, files: [{ path, bytes }], usage }` |
+| `edit_image` | same as `generate_image`, plus `images` (1–16 paths / URLs / file IDs), `mask`, `input_fidelity` | same as `generate_image` |
+| `list_image_models` | none | OpenAI image models and their capabilities |
+
+The image tools call the OpenAI Images API and need `OPENAI_API_KEY`; the YouTube tools work without it.
 
 - **Tagged files:** saved as `<title> [<videoId>].mp3` with ID3 tags and the cover art embedded.
 - **Videos too:** `download_video` saves `<title> [<videoId>].mp4` (H.264/AAC preferred so it plays in QuickTime and on iOS; VP9/AV1 only when the resolution needs it) with metadata, chapters and the thumbnail embedded. If the requested resolution doesn't exist, the next lower one is used.
@@ -110,6 +115,10 @@ as the command and set the environment variables below if you need them.
 | `YT_AUDIO_DIR` | `~/Music/yt-download-mcp` | Where MP3s are saved |
 | `YT_VIDEO_DIR` | `<YT_AUDIO_DIR>/video` | Where videos are saved |
 | `YTDLP_PATH` | `yt-dlp` (from `PATH`) | Path to the yt-dlp binary |
+| `OPENAI_API_KEY` | none | Required for the image tools |
+| `OPENAI_IMAGE_MODEL` | `gpt-image-2.5-flare` | Default image model |
+| `OPENAI_IMAGE_OUTPUT_DIR` | `~/Pictures/openai-image-mcp` | Where generated images are saved |
+| `OPENAI_BASE_URL`, `OPENAI_ORG_ID`, `OPENAI_PROJECT_ID`, `OPENAI_IMAGE_TIMEOUT_MS` | | Optional OpenAI API settings |
 
 Desktop apps often don't inherit your shell's `PATH`. If you see "yt-dlp not found",
 set `YTDLP_PATH=/opt/homebrew/bin/yt-dlp`. If ffmpeg isn't found either, add
@@ -167,7 +176,10 @@ npm run dev       # rebuild on change
 |---|---|
 | `src/index.ts` | MCP server and tool definitions |
 | `src/ytdlp.ts` | URL validation and the yt-dlp wrapper |
-| `src/ytdlp.test.ts` | Unit tests |
+| `src/images.ts` | OpenAI image tool definitions |
+| `src/openai.ts` | OpenAI Images API client |
+| `src/models.ts` | Image model catalog and parameter checks |
+| `src/*.test.ts` | Unit tests |
 | `skills/respect` | The "respect" Claude Code skill |
 
 ## Contributing
